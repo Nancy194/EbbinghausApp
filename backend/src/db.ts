@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 
-const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH ?? import.meta.dirname;
+const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname || process.cwd();
 const DB_PATH = path.join(DATA_DIR, 'data.db');
 
 let db: Database.Database;
