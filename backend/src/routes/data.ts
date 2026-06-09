@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db.js';
+import pool from '../db.js';
 import type { PersistedData } from '../types.js';
 
 export const dataRouter = Router();
 
-// GET /api/data?nickname=xxx — 获取用户全部数据
-dataRouter.get('/data', (req: Request, res: Response) => {
+dataRouter.get('/data', async (req: Request, res: Response) => {
   const nickname = req.query.nickname as string;
 
   if (!nickname) {
@@ -13,24 +12,26 @@ dataRouter.get('/data', (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
+  const normalized = nickname.toLowerCase();
 
-  const user = db.prepare('SELECT nickname FROM users WHERE nickname = ?').get(nickname.toLowerCase());
-  if (!user) {
+  const userResult = await pool.query('SELECT nickname FROM users WHERE nickname = $1', [normalized]);
+  if (userResult.rows.length === 0) {
     res.status(404).json({ error: '用户不存在' });
     return;
   }
 
-  const dayRows = db.prepare(
-    'SELECT date, entries_json, updated_at FROM day_records WHERE nickname = ?'
-  ).all(nickname.toLowerCase()) as any[];
+  const dayResult = await pool.query(
+    'SELECT date, entries_json, updated_at FROM day_records WHERE nickname = $1',
+    [normalized]
+  );
 
-  const completionRows = db.prepare(
-    'SELECT source_date, completions_json FROM review_completions WHERE nickname = ?'
-  ).all(nickname.toLowerCase()) as any[];
+  const completionResult = await pool.query(
+    'SELECT source_date, completions_json FROM review_completions WHERE nickname = $1',
+    [normalized]
+  );
 
   const dayRecords: PersistedData['dayRecords'] = {};
-  for (const row of dayRows) {
+  for (const row of dayResult.rows) {
     dayRecords[row.date] = {
       date: row.date,
       entries: JSON.parse(row.entries_json),
@@ -39,15 +40,14 @@ dataRouter.get('/data', (req: Request, res: Response) => {
   }
 
   const completions: PersistedData['completions'] = {};
-  for (const row of completionRows) {
+  for (const row of completionResult.rows) {
     completions[row.source_date] = JSON.parse(row.completions_json);
   }
 
   res.json({ dayRecords, completions });
 });
 
-// PUT /api/data — 全量同步数据
-dataRouter.put('/data', (req: Request, res: Response) => {
+dataRouter.put('/data', async (req: Request, res: Response) => {
   const { nickname, dayRecords, completions } = req.body;
 
   if (!nickname || typeof nickname !== 'string') {
@@ -55,51 +55,52 @@ dataRouter.put('/data', (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
   const normalized = nickname.toLowerCase();
 
-  const user = db.prepare('SELECT nickname FROM users WHERE nickname = ?').get(normalized);
-  if (!user) {
+  const userResult = await pool.query('SELECT nickname FROM users WHERE nickname = $1', [normalized]);
+  if (userResult.rows.length === 0) {
     res.status(404).json({ error: '用户不存在' });
     return;
   }
 
   const now = new Date().toISOString();
 
-  const upsertDayRecord = db.prepare(`
-    INSERT INTO day_records (nickname, date, entries_json, updated_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(nickname, date) DO UPDATE SET
-      entries_json = excluded.entries_json,
-      updated_at = excluded.updated_at
-  `);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  const upsertCompletion = db.prepare(`
-    INSERT INTO review_completions (nickname, source_date, completions_json)
-    VALUES (?, ?, ?)
-    ON CONFLICT(nickname, source_date) DO UPDATE SET
-      completions_json = excluded.completions_json
-  `);
-
-  const transaction = db.transaction(() => {
     if (dayRecords) {
       for (const [date, record] of Object.entries(dayRecords)) {
-        upsertDayRecord.run(
-          normalized,
-          date,
-          JSON.stringify((record as any).entries ?? []),
-          (record as any).updatedAt ?? now
+        await client.query(
+          `INSERT INTO day_records (nickname, date, entries_json, updated_at)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT(nickname, date) DO UPDATE SET
+             entries_json = EXCLUDED.entries_json,
+             updated_at = EXCLUDED.updated_at`,
+          [normalized, date, JSON.stringify((record as any).entries ?? []), (record as any).updatedAt ?? now]
         );
       }
     }
 
     if (completions) {
       for (const [sourceDate, comps] of Object.entries(completions)) {
-        upsertCompletion.run(normalized, sourceDate, JSON.stringify(comps));
+        await client.query(
+          `INSERT INTO review_completions (nickname, source_date, completions_json)
+           VALUES ($1, $2, $3)
+           ON CONFLICT(nickname, source_date) DO UPDATE SET
+             completions_json = EXCLUDED.completions_json`,
+          [normalized, sourceDate, JSON.stringify(comps)]
+        );
       }
     }
-  });
 
-  transaction();
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
   res.json({ ok: true });
 });

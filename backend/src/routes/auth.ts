@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db.js';
+import pool from '../db.js';
 
 export const authRouter = Router();
 
-// POST /api/auth — 注册或登录
-authRouter.post('/auth', (req: Request, res: Response) => {
+authRouter.post('/auth', async (req: Request, res: Response) => {
   const { nickname } = req.body;
 
   if (!nickname || typeof nickname !== 'string') {
@@ -24,19 +23,18 @@ authRouter.post('/auth', (req: Request, res: Response) => {
     return;
   }
 
-  const db = getDb();
+  const { rows } = await pool.query(
+    'SELECT nickname, created_at FROM users WHERE nickname = $1',
+    [trimmed]
+  );
 
-  const existing = db.prepare('SELECT nickname, created_at FROM users WHERE nickname = ?').get(trimmed) as any;
-
-  if (existing) {
-    // 已存在 → 直接登录
-    res.json({ nickname: existing.nickname, created_at: existing.created_at, isNew: false });
+  if (rows.length > 0) {
+    res.json({ nickname: rows[0].nickname, created_at: rows[0].created_at, isNew: false });
     return;
   }
 
-  // 新用户 → 注册
   const now = new Date().toISOString();
-  db.prepare('INSERT INTO users (nickname, created_at) VALUES (?, ?)').run(trimmed, now);
+  await pool.query('INSERT INTO users (nickname, created_at) VALUES ($1, $2)', [trimmed, now]);
 
   res.status(201).json({ nickname: trimmed, created_at: now, isNew: true });
 });

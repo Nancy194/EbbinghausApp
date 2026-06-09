@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ebbinghaus-api
+    runtime: node
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production

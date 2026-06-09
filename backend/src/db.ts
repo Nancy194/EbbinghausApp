@@ -1,30 +1,19 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import { Pool } from 'pg';
 
-const DATA_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname || process.cwd();
-const DB_PATH = path.join(DATA_DIR, 'data.db');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
 
-let db: Database.Database;
-
-export function getDb(): Database.Database {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initTables();
-  }
-  return db;
-}
-
-function initTables() {
-  db.exec(`
+export async function initDb() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       nickname TEXT PRIMARY KEY,
       created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS day_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       nickname TEXT NOT NULL REFERENCES users(nickname),
       date TEXT NOT NULL,
       entries_json TEXT NOT NULL DEFAULT '[]',
@@ -33,7 +22,7 @@ function initTables() {
     );
 
     CREATE TABLE IF NOT EXISTS review_completions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       nickname TEXT NOT NULL REFERENCES users(nickname),
       source_date TEXT NOT NULL,
       completions_json TEXT NOT NULL DEFAULT '[]',
@@ -41,3 +30,5 @@ function initTables() {
     );
   `);
 }
+
+export default pool;
