@@ -24,9 +24,7 @@
       "package": "com.anonymous.EbbinghausApp",
       "permissions": ["RECORD_AUDIO"]
     },
-    "plugins": [
-      "expo-speech-recognition"
-    ],
+    "plugins": [],
     "web": {
       "favicon": "./assets/favicon.png"
     }
