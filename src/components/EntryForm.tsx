@@ -1,5 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { COLORS } from '../constants';
 
 interface Props {
@@ -12,6 +23,8 @@ interface Props {
 export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onChange }: Props) {
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState(initialBody);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
 
   const handleTitleChange = (text: string) => {
     setTitle(text);
@@ -22,8 +35,49 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
 
   const handleBodyChange = (text: string) => {
     setBody(text);
+    setTranscript('');
     onChange({ title, body: text });
   };
+
+  useSpeechRecognitionEvent('result', (event) => {
+    if (event.results.length > 0) {
+      const text = event.results[0]?.transcript ?? '';
+      setTranscript(text);
+      if (event.isFinal) {
+        const newBody = body ? `${body} ${text}` : text;
+        setBody(newBody);
+        setTranscript('');
+        onChange({ title, body: newBody });
+      }
+    }
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    console.warn('Speech recognition error:', event.message);
+    setIsRecording(false);
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setIsRecording(false);
+  });
+
+  const toggleRecording = useCallback(async () => {
+    if (isRecording) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+
+    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!perm.granted) {
+      return;
+    }
+
+    setIsRecording(true);
+    ExpoSpeechRecognitionModule.start({
+      lang: 'zh-CN',
+      interimResults: true,
+    });
+  }, [isRecording, body, title]);
 
   return (
     <View style={styles.container}>
@@ -36,16 +90,33 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
         placeholderTextColor={COLORS.textTertiary}
         autoFocus={!initialTitle}
       />
+
       <Text style={styles.label}>正文</Text>
-      <TextInput
-        style={styles.bodyInput}
-        value={body}
-        onChangeText={handleBodyChange}
-        placeholder="输入内容..."
-        placeholderTextColor={COLORS.textTertiary}
-        multiline
-        textAlignVertical="top"
-      />
+      <View style={styles.bodyWrapper}>
+        <TextInput
+          style={styles.bodyInput}
+          value={body + (transcript ? (body ? ' ' : '') + transcript : '')}
+          onChangeText={handleBodyChange}
+          placeholder="输入内容或使用语音..."
+          placeholderTextColor={COLORS.textTertiary}
+          multiline
+          textAlignVertical="top"
+        />
+        <TouchableOpacity
+          style={[styles.micButton, isRecording && styles.micButtonActive]}
+          onPress={toggleRecording}
+          activeOpacity={0.7}
+        >
+          {isRecording ? (
+            <ActivityIndicator size="small" color={COLORS.white} />
+          ) : (
+            <Text style={styles.micIcon}>🎤</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+      {isRecording && (
+        <Text style={styles.recordingHint}>正在聆听中...</Text>
+      )}
     </View>
   );
 }
@@ -71,14 +142,41 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     backgroundColor: COLORS.card,
   },
+  bodyWrapper: {
+    position: 'relative',
+  },
   bodyInput: {
     borderWidth: 0.5,
     borderColor: COLORS.border,
     borderRadius: 10,
     padding: 12,
+    paddingRight: 52,
     fontSize: 15,
     color: COLORS.text,
     backgroundColor: COLORS.card,
     minHeight: 160,
+  },
+  micButton: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  micButtonActive: {
+    backgroundColor: COLORS.danger,
+  },
+  micIcon: {
+    fontSize: 18,
+  },
+  recordingHint: {
+    fontSize: 12,
+    color: COLORS.danger,
+    marginTop: 6,
+    textAlign: 'center',
   },
 });

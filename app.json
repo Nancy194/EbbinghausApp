@@ -7,7 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "需要使用麦克风进行语音输入",
+        "NSSpeechRecognitionUsageDescription": "需要语音识别功能将语音转换为文字"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -16,8 +20,13 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.EbbinghausApp",
+      "permissions": ["RECORD_AUDIO"]
     },
+    "plugins": [
+      "expo-speech-recognition"
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }
