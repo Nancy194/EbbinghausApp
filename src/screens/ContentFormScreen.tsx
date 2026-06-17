@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Switch,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
@@ -12,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppContext } from '../context/AppContext';
 import { COLORS } from '../constants';
 import { generateId } from '../utils/reviewAlgorithm';
+import { isToday } from '../utils/dateUtils';
 import { EntryForm } from '../components/EntryForm';
 
 export function ContentFormScreen({ route, navigation }: any) {
@@ -21,6 +23,9 @@ export function ContentFormScreen({ route, navigation }: any) {
 
   const [formData, setFormData] = useState({ title: initTitle ?? '', body: initBody ?? '' });
   const [isValid, setIsValid] = useState(isEditing);
+  const [fullyReviewed, setFullyReviewed] = useState(!isToday(date));
+
+  const dateIsPast = !isToday(date);
 
   const handleChange = useCallback(
     (data: { title: string; body: string }) => {
@@ -50,7 +55,7 @@ export function ContentFormScreen({ route, navigation }: any) {
         title: formData.title.trim(),
         body: formData.body.trim(),
       };
-      addEntry(date, entry);
+      addEntry(date, entry, dateIsPast ? fullyReviewed : undefined);
     }
 
     navigation.goBack();
@@ -88,6 +93,21 @@ export function ContentFormScreen({ route, navigation }: any) {
           onValidate={handleValidate}
           onChange={handleChange}
         />
+
+        {dateIsPast && (
+          <View style={styles.reviewedToggle}>
+            <View style={styles.toggleText}>
+              <Text style={styles.toggleLabel}>标记为已全部复习</Text>
+              <Text style={styles.toggleHint}>将过往复习记录标记为已完成，不再堆积到今日</Text>
+            </View>
+            <Switch
+              value={fullyReviewed}
+              onValueChange={setFullyReviewed}
+              trackColor={{ false: COLORS.border, true: COLORS.primary }}
+              thumbColor={fullyReviewed ? COLORS.white : COLORS.textTertiary}
+            />
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -135,6 +155,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   saveButtonTextDisabled: {
+    color: COLORS.textTertiary,
+  },
+  reviewedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 0.5,
+    borderTopColor: COLORS.border,
+    marginTop: 8,
+  },
+  toggleText: {
+    flex: 1,
+    marginRight: 12,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  toggleHint: {
+    fontSize: 12,
     color: COLORS.textTertiary,
   },
 });
