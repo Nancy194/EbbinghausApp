@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert } from 'react-native';
 import type { Entry } from '../types';
 import { COLORS } from '../constants';
 
@@ -30,10 +30,12 @@ export function EntryCard({ entry, onEdit, onDelete, readonly, index, total }: P
   };
 
   return (
-    <TouchableOpacity
-      style={styles.card}
+    <Pressable
+      style={({ pressed }) => [
+        styles.card,
+        pressed && !readonly && styles.cardPressed,
+      ]}
       onLongPress={handleLongPress}
-      activeOpacity={readonly ? 1 : 0.7}
     >
       {index !== undefined && total !== undefined && (
         <Text style={styles.counter}>
@@ -58,7 +60,7 @@ export function EntryCard({ entry, onEdit, onDelete, readonly, index, total }: P
           </TouchableOpacity>
         </View>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -70,6 +72,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     borderWidth: 0.5,
     borderColor: COLORS.border,
+  },
+  cardPressed: {
+    opacity: 0.7,
   },
   counter: {
     fontSize: 11,
