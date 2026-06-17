@@ -23,7 +23,7 @@ export function ContentFormScreen({ route, navigation }: any) {
 
   const [formData, setFormData] = useState({ title: initTitle ?? '', body: initBody ?? '' });
   const [isValid, setIsValid] = useState(isEditing);
-  const [fullyReviewed, setFullyReviewed] = useState(!isToday(date));
+  const [resetReview, setResetReview] = useState(!isToday(date));
 
   const dateIsPast = !isToday(date);
 
@@ -55,7 +55,7 @@ export function ContentFormScreen({ route, navigation }: any) {
         title: formData.title.trim(),
         body: formData.body.trim(),
       };
-      addEntry(date, entry, dateIsPast ? fullyReviewed : undefined);
+      addEntry(date, entry, dateIsPast ? resetReview : undefined);
     }
 
     navigation.goBack();
@@ -97,14 +97,14 @@ export function ContentFormScreen({ route, navigation }: any) {
         {dateIsPast && (
           <View style={styles.reviewedToggle}>
             <View style={styles.toggleText}>
-              <Text style={styles.toggleLabel}>标记为已全部复习</Text>
-              <Text style={styles.toggleHint}>将过往复习记录标记为已完成，不再堆积到今日</Text>
+              <Text style={styles.toggleLabel}>重置复习时钟</Text>
+              <Text style={styles.toggleHint}>标记为"今日已复习"，明天开始按艾宾浩斯间隔复习</Text>
             </View>
             <Switch
-              value={fullyReviewed}
-              onValueChange={setFullyReviewed}
+              value={resetReview}
+              onValueChange={setResetReview}
               trackColor={{ false: COLORS.border, true: COLORS.primary }}
-              thumbColor={fullyReviewed ? COLORS.white : COLORS.textTertiary}
+              thumbColor={resetReview ? COLORS.white : COLORS.textTertiary}
             />
           </View>
         )}

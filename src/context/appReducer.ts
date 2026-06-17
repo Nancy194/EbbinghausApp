@@ -1,6 +1,4 @@
 import type { AppState, DayRecord, Entry, PersistedData, ReviewCompletion } from '../types';
-import { EBBINGHAUS_INTERVALS } from '../constants';
-import { addDays } from '../utils/dateUtils';
 
 export type Action =
   | { type: 'SET_NICKNAME'; payload: string }
@@ -10,7 +8,7 @@ export type Action =
   | { type: 'SET_SYNCING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SELECT_DATE'; payload: string }
-  | { type: 'ADD_ENTRY'; payload: { date: string; entry: Entry; fullyReviewed?: boolean } }
+  | { type: 'ADD_ENTRY'; payload: { date: string; entry: Entry; resetReview?: boolean } }
   | {
       type: 'EDIT_ENTRY';
       payload: { date: string; entryId: string; title: string; body: string };
@@ -60,7 +58,7 @@ export function appReducer(state: AppState, action: Action): AppState {
       return { ...state, selectedDate: action.payload };
 
     case 'ADD_ENTRY': {
-      const { date, entry, fullyReviewed } = action.payload;
+      const { date, entry, resetReview } = action.payload;
       const existing = state.dayRecords[date];
       const now = new Date().toISOString();
       const dayRecord: DayRecord = existing
@@ -76,21 +74,15 @@ export function appReducer(state: AppState, action: Action): AppState {
           };
 
       let completions = state.completions;
-      if (fullyReviewed && date <= state.today) {
+      if (resetReview && date < state.today) {
         const existingCompletions = state.completions[date] ?? [];
         const completedSet = new Set(existingCompletions.map((c) => c.interval));
-        const newCompletions = [...existingCompletions];
-        for (const interval of EBBINGHAUS_INTERVALS) {
-          if (completedSet.has(interval)) continue;
-          const scheduledDate = addDays(date, interval);
-          if (scheduledDate <= state.today) {
-            newCompletions.push({ interval, completedDate: scheduledDate });
-          }
+        if (!completedSet.has(1)) {
+          completions = {
+            ...state.completions,
+            [date]: [...existingCompletions, { interval: 1, completedDate: state.today }],
+          };
         }
-        completions = {
-          ...state.completions,
-          [date]: newCompletions,
-        };
       }
 
       return {

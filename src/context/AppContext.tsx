@@ -14,7 +14,7 @@ interface AppContextValue {
   login: (nickname: string) => void;
   logout: () => void;
   setReviewLimit: (limit: number) => void;
-  addEntry: (date: string, entry: Entry, fullyReviewed?: boolean) => void;
+  addEntry: (date: string, entry: Entry, resetReview?: boolean) => void;
   editEntry: (date: string, entryId: string, title: string, body: string) => void;
   deleteEntry: (date: string, entryId: string) => void;
   markReviewComplete: (sourceDate: string) => void;
@@ -69,8 +69,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEYS.REVIEW_LIMIT, String(limit));
   };
 
-  const addEntry = (date: string, entry: Entry, fullyReviewed?: boolean) => {
-    dispatch({ type: 'ADD_ENTRY', payload: { date, entry, fullyReviewed } });
+  const addEntry = (date: string, entry: Entry, resetReview?: boolean) => {
+    dispatch({ type: 'ADD_ENTRY', payload: { date, entry, resetReview } });
   };
 
   const editEntry = (date: string, entryId: string, title: string, body: string) => {
