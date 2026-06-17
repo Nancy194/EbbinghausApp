@@ -6,13 +6,39 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+  useAudioRecorder,
+  requestRecordingPermissionsAsync,
+  AudioQuality,
+} from 'expo-audio';
+import { recognizeSpeech } from '../services/speechToText';
 import { COLORS } from '../constants';
+import type { RecordingOptions } from 'expo-audio';
+
+// 百度ASR支持的录音格式
+const RECORDING_OPTIONS: RecordingOptions = {
+  extension: '.amr',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 12200,
+  android: {
+    outputFormat: 'amrwb',
+    audioEncoder: 'amr_wb',
+  },
+  ios: {
+    outputFormat: 'linearPCM',
+    audioQuality: AudioQuality.MAX,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 256000,
+  },
+};
 
 interface Props {
   initialTitle?: string;
@@ -26,7 +52,8 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
   const [body, setBody] = useState(initialBody);
   const [isRecording, setIsRecording] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [transcript, setTranscript] = useState('');
+
+  const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
 
   const handleTitleChange = (text: string) => {
     setTitle(text);
@@ -37,65 +64,81 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
 
   const handleBodyChange = (text: string) => {
     setBody(text);
-    setTranscript('');
     setErrorMsg('');
     onChange({ title, body: text });
   };
 
-  useSpeechRecognitionEvent('result', (event) => {
-    if (event.results.length > 0) {
-      const text = event.results[0]?.transcript ?? '';
-      setTranscript(text);
-      if (event.isFinal) {
-        const newBody = body ? `${body} ${text}` : text;
-        setBody(newBody);
-        setTranscript('');
-        onChange({ title, body: newBody });
-        setIsRecording(false);
-      }
-    }
-  });
-
-  useSpeechRecognitionEvent('error', (event) => {
-    setIsRecording(false);
-    const msg = event.message || '语音识别出错';
-    setErrorMsg(`${msg}。如果持续失败，请使用系统键盘语音输入`);
-  });
-
-  useSpeechRecognitionEvent('end', () => {
-    setIsRecording(false);
-  });
-
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
-      ExpoSpeechRecognitionModule.stop();
+      try {
+        await audioRecorder.stop();
+        setIsRecording(false);
+      } catch {
+        setIsRecording(false);
+        setErrorMsg('停止录音失败');
+      }
       return;
     }
 
     setErrorMsg('');
 
-    const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-    if (!available) {
-      Alert.alert(
-        '设备不支持',
-        '此设备未内置语音识别引擎。\n\n建议使用系统键盘自带的语音输入（点击键盘上的麦克风图标）。',
-        [{ text: '知道了' }]
-      );
-      return;
-    }
+    try {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        setErrorMsg('未获得麦克风权限');
+        return;
+      }
 
-    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!perm.granted) {
-      setErrorMsg('未获得麦克风权限');
-      return;
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setIsRecording(true);
+    } catch (err: any) {
+      setErrorMsg(err.message || '启动录音失败');
     }
+  }, [isRecording, audioRecorder]);
 
-    setIsRecording(true);
-    ExpoSpeechRecognitionModule.start({
-      lang: 'zh-CN',
-      interimResults: true,
-    });
-  }, [isRecording, body, title]);
+  const stopAndRecognize = useCallback(async () => {
+    if (!isRecording) return;
+
+    try {
+      await audioRecorder.stop();
+      setIsRecording(false);
+
+      const uri = audioRecorder.uri;
+      if (!uri) {
+        setErrorMsg('录音文件读取失败');
+        return;
+      }
+
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        setErrorMsg('录音文件不存在');
+        return;
+      }
+
+      const text = await recognizeSpeech(base64, fileInfo.size ?? 0);
+
+      if (text) {
+        const newBody = body ? `${body} ${text}` : text;
+        setBody(newBody);
+        onChange({ title, body: newBody });
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || '语音识别失败');
+    }
+  }, [isRecording, audioRecorder, body, title, onChange]);
+
+  const handleMicPress = useCallback(() => {
+    if (isRecording) {
+      stopAndRecognize();
+    } else {
+      toggleRecording();
+    }
+  }, [isRecording, toggleRecording, stopAndRecognize]);
 
   return (
     <View style={styles.container}>
@@ -113,7 +156,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
       <View style={styles.bodyWrapper}>
         <TextInput
           style={styles.bodyInput}
-          value={body + (transcript ? (body ? ' ' : '') + transcript : '')}
+          value={body}
           onChangeText={handleBodyChange}
           placeholder="输入内容或使用语音..."
           placeholderTextColor={COLORS.textTertiary}
@@ -122,7 +165,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
         />
         <TouchableOpacity
           style={[styles.micButton, isRecording && styles.micButtonActive]}
-          onPress={toggleRecording}
+          onPress={handleMicPress}
           activeOpacity={0.7}
         >
           {isRecording ? (
@@ -133,7 +176,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
         </TouchableOpacity>
       </View>
       {isRecording && (
-        <Text style={styles.recordingHint}>正在聆听中...</Text>
+        <Text style={styles.recordingHint}>正在聆听中，点击停止识别...</Text>
       )}
       {errorMsg ? (
         <Text style={styles.errorHint}>{errorMsg}</Text>
