@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {
   ExpoSpeechRecognitionModule,
@@ -25,6 +26,8 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
   const [body, setBody] = useState(initialBody);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const recordingRef = useRef(false);
 
   const handleTitleChange = (text: string) => {
     setTitle(text);
@@ -36,6 +39,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
   const handleBodyChange = (text: string) => {
     setBody(text);
     setTranscript('');
+    setErrorMsg('');
     onChange({ title, body: text });
   };
 
@@ -43,35 +47,54 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
     if (event.results.length > 0) {
       const text = event.results[0]?.transcript ?? '';
       setTranscript(text);
+      setErrorMsg('');
       if (event.isFinal) {
         const newBody = body ? `${body} ${text}` : text;
         setBody(newBody);
         setTranscript('');
         onChange({ title, body: newBody });
+        setIsRecording(false);
       }
     }
   });
 
   useSpeechRecognitionEvent('error', (event) => {
-    console.warn('Speech recognition error:', event.message);
     setIsRecording(false);
+    recordingRef.current = false;
+    setErrorMsg(event.message || '语音识别出错');
   });
 
   useSpeechRecognitionEvent('end', () => {
     setIsRecording(false);
+    recordingRef.current = false;
   });
 
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
+      recordingRef.current = false;
       ExpoSpeechRecognitionModule.stop();
       return;
     }
 
+    setErrorMsg('');
+
+    try {
+      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+      if (!available) {
+        Alert.alert('不支持', '此设备不支持语音识别，可能缺少 Google 语音服务');
+        return;
+      }
+    } catch {
+      // isRecognitionAvailable might not exist on all platforms
+    }
+
     const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!perm.granted) {
+      setErrorMsg('未获得麦克风权限');
       return;
     }
 
+    recordingRef.current = true;
     setIsRecording(true);
     ExpoSpeechRecognitionModule.start({
       lang: 'zh-CN',
@@ -117,6 +140,9 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
       {isRecording && (
         <Text style={styles.recordingHint}>正在聆听中...</Text>
       )}
+      {errorMsg ? (
+        <Text style={styles.errorHint}>{errorMsg}</Text>
+      ) : null}
     </View>
   );
 }
@@ -176,6 +202,12 @@ const styles = StyleSheet.create({
   recordingHint: {
     fontSize: 12,
     color: COLORS.danger,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  errorHint: {
+    fontSize: 12,
+    color: COLORS.warning,
     marginTop: 6,
     textAlign: 'center',
   },
