@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import type { Entry } from '../types';
 import { COLORS } from '../constants';
+import { ConfirmModal } from './ConfirmModal';
 
 interface Props {
   entry: Entry;
@@ -13,54 +14,58 @@ interface Props {
 }
 
 export function EntryCard({ entry, onEdit, onDelete, readonly, index, total }: Props) {
-  const handleLongPress = () => {
-    if (readonly) return;
-    Alert.alert('操作', '请选择操作', [
-      { text: '编辑', onPress: () => onEdit(entry) },
-      { text: '删除', style: 'destructive', onPress: () => confirmDelete() },
-      { text: '取消', style: 'cancel' },
-    ]);
-  };
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const confirmDelete = () => {
-    Alert.alert('确认删除', `确定要删除「${entry.title}」吗？`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => onDelete(entry) },
-    ]);
+    setShowDeleteConfirm(true);
   };
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        pressed && !readonly && styles.cardPressed,
-      ]}
-      onLongPress={handleLongPress}
-    >
-      {index !== undefined && total !== undefined && (
-        <Text style={styles.counter}>
-          {index}/{total}
-        </Text>
-      )}
-      <Text style={styles.title}>{entry.title}</Text>
-      {entry.body ? <Text style={styles.body}>{entry.body}</Text> : null}
-      {!readonly && (
-        <View style={styles.actions}>
-          <TouchableOpacity
-            onPress={() => onEdit(entry)}
-            style={styles.editButton}
-          >
-            <Text style={styles.editText}>编辑</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={confirmDelete}
-            style={styles.deleteButton}
-          >
-            <Text style={styles.deleteText}>删除</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </Pressable>
+    <>
+      <Pressable
+        style={({ pressed }) => [
+          styles.card,
+          pressed && !readonly && styles.cardPressed,
+        ]}
+        onLongPress={confirmDelete}
+      >
+        {index !== undefined && total !== undefined && (
+          <Text style={styles.counter}>
+            {index}/{total}
+          </Text>
+        )}
+        <Text style={styles.title}>{entry.title}</Text>
+        {entry.body ? <Text style={styles.body}>{entry.body}</Text> : null}
+        {!readonly && (
+          <View style={styles.actions}>
+            <TouchableOpacity
+              onPress={() => onEdit(entry)}
+              style={styles.editButton}
+            >
+              <Text style={styles.editText}>编辑</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={confirmDelete}
+              style={styles.deleteButton}
+            >
+              <Text style={styles.deleteText}>删除</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </Pressable>
+
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        title="确认删除"
+        message={`确定要删除「${entry.title}」吗？`}
+        confirmLabel="删除"
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          onDelete(entry);
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+    </>
   );
 }
 
