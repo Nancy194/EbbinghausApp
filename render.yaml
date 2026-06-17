@@ -11,14 +11,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromService:
+        fromDatabase:
           name: ebbinghaus-db
-          type: pserv
           property: connectionString
 
-  - type: pserv
-    name: ebbinghaus-db
+databases:
+  - name: ebbinghaus-db
     plan: free
-    runtime: image
-    image:
-      image: render/postgresql
