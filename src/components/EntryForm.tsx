@@ -6,13 +6,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
+  Platform,
 } from 'react-native';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
+import { recognizeSpeech } from '../services/speechToText';
 import { COLORS } from '../constants';
+
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 interface Props {
   initialTitle?: string;
@@ -25,9 +31,9 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState(initialBody);
   const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const recordingRef = useRef(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const webRecognition = useRef<any>(null);
 
   const handleTitleChange = (text: string) => {
     setTitle(text);
@@ -38,69 +44,135 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
 
   const handleBodyChange = (text: string) => {
     setBody(text);
-    setTranscript('');
     setErrorMsg('');
     onChange({ title, body: text });
   };
 
-  useSpeechRecognitionEvent('result', (event) => {
-    if (event.results.length > 0) {
-      const text = event.results[0]?.transcript ?? '';
-      setTranscript(text);
-      setErrorMsg('');
-      if (event.isFinal) {
+  // ---- Web: 使用浏览器 SpeechRecognition API ----
+  const startWebRecognition = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setErrorMsg('浏览器不支持语音识别，请使用 Chrome');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const text = event.results[0]?.[0]?.transcript ?? '';
+      if (event.results[0].isFinal) {
         const newBody = body ? `${body} ${text}` : text;
         setBody(newBody);
-        setTranscript('');
         onChange({ title, body: newBody });
         setIsRecording(false);
       }
-    }
-  });
+    };
 
-  useSpeechRecognitionEvent('error', (event) => {
+    recognition.onerror = (event: any) => {
+      setErrorMsg(event.error || '语音识别失败');
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    webRecognition.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+    setErrorMsg('');
+  }, [body, title, onChange]);
+
+  const stopWebRecognition = useCallback(() => {
+    webRecognition.current?.stop();
+    webRecognition.current = null;
     setIsRecording(false);
-    recordingRef.current = false;
-    setErrorMsg(event.message || '语音识别出错');
-  });
+  }, []);
 
-  useSpeechRecognitionEvent('end', () => {
-    setIsRecording(false);
-    recordingRef.current = false;
-  });
-
-  const toggleRecording = useCallback(async () => {
-    if (isRecording) {
-      recordingRef.current = false;
-      ExpoSpeechRecognitionModule.stop();
-      return;
-    }
-
+  // ---- Native: 录音 + 百度语音识别 ----
+  const startNativeRecording = useCallback(async () => {
     setErrorMsg('');
 
     try {
-      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      if (!available) {
-        Alert.alert('不支持', '此设备不支持语音识别，可能缺少 Google 语音服务');
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        setErrorMsg('未获得麦克风权限');
         return;
       }
-    } catch {
-      // isRecognitionAvailable might not exist on all platforms
-    }
 
-    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!perm.granted) {
-      setErrorMsg('未获得麦克风权限');
-      return;
-    }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
 
-    recordingRef.current = true;
-    setIsRecording(true);
-    ExpoSpeechRecognitionModule.start({
-      lang: 'zh-CN',
-      interimResults: true,
-    });
-  }, [isRecording, body, title]);
+      const newRecording = new Audio.Recording();
+      await newRecording.prepareToRecordAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      await newRecording.startAsync();
+      setRecording(newRecording);
+      setIsRecording(true);
+      setErrorMsg('');
+    } catch (err: any) {
+      setErrorMsg(err.message || '启动录音失败');
+    }
+  }, []);
+
+  const stopNativeRecording = useCallback(async () => {
+    if (!recording) return;
+
+    try {
+      await recording.stopAndUnloadAsync();
+      setRecording(null);
+      setIsRecording(false);
+
+      const uri = recording.getURI();
+      if (!uri) {
+        setErrorMsg('录音文件读取失败');
+        return;
+      }
+
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        setErrorMsg('录音文件不存在');
+        return;
+      }
+
+      const text = await recognizeSpeech(base64, fileInfo.size ?? 0);
+
+      if (text) {
+        const newBody = body ? `${body} ${text}` : text;
+        setBody(newBody);
+        onChange({ title, body: newBody });
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || '语音识别失败');
+    }
+  }, [recording, body, title, onChange]);
+
+  const handleMicPress = useCallback(() => {
+    if (Platform.OS === 'web') {
+      if (isRecording) {
+        stopWebRecognition();
+      } else {
+        startWebRecognition();
+      }
+    } else {
+      if (isRecording) {
+        stopNativeRecording();
+      } else {
+        startNativeRecording();
+      }
+    }
+  }, [isRecording, startWebRecognition, stopWebRecognition, startNativeRecording, stopNativeRecording]);
 
   return (
     <View style={styles.container}>
@@ -118,7 +190,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
       <View style={styles.bodyWrapper}>
         <TextInput
           style={styles.bodyInput}
-          value={body + (transcript ? (body ? ' ' : '') + transcript : '')}
+          value={body}
           onChangeText={handleBodyChange}
           placeholder="输入内容或使用语音..."
           placeholderTextColor={COLORS.textTertiary}
@@ -127,7 +199,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
         />
         <TouchableOpacity
           style={[styles.micButton, isRecording && styles.micButtonActive]}
-          onPress={toggleRecording}
+          onPress={handleMicPress}
           activeOpacity={0.7}
         >
           {isRecording ? (
@@ -138,7 +210,7 @@ export function EntryForm({ initialTitle = '', initialBody = '', onValidate, onC
         </TouchableOpacity>
       </View>
       {isRecording && (
-        <Text style={styles.recordingHint}>正在聆听中...</Text>
+        <Text style={styles.recordingHint}>正在聆听中，点击停止识别...</Text>
       )}
       {errorMsg ? (
         <Text style={styles.errorHint}>{errorMsg}</Text>
