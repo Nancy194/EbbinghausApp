@@ -1,7 +1,6 @@
 import type { PersistedData } from '../types';
 
-// 部署后替换为 Railway 实际域名
-const PROD_API = 'https://your-app.railway.app/api';
+const PROD_API = 'https://ebbinghaus-api.onrender.com/api';
 const DEV_API = 'http://192.168.31.119:3001/api';
 
 const API_BASE = typeof __DEV__ !== 'undefined' && __DEV__ ? DEV_API : PROD_API;
