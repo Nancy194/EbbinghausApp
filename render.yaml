@@ -18,7 +18,6 @@ services:
   - type: web
     name: ebbinghaus-web
     runtime: static
-    plan: free
     branch: main
     buildCommand: npx expo export --platform web
     staticPublishPath: dist
